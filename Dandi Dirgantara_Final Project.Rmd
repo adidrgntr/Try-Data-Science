@@ -1,0 +1,427 @@
+---
+title: "Final Project"
+author: "dnddrgntr"
+date: "11/12/2021"
+output: html_document
+---
+
+
+#Set Work Directory
+```{r}
+setwd("D:\\dibimbing.id\\1. Project")
+```
+
+
+
+#Import Library
+```{r}
+library(dplyr)
+library(ggplot2)
+```
+
+#Load Dataset
+```{r}
+data <- read.csv("german_credit_data_1.csv")
+data
+```
+#Quick Check
+```{r}
+summary(data)
+```
+
+
+#check missing value
+```{r}
+data %>% is.na() %>% colSums()
+```
+- the missing value is in 2 columns (saving accounts and checking accounts)
+- let's check for these 2 columns
+
+```{r}
+data %>% 
+  count(Saving.accounts) %>% 
+  ggplot(aes(x = Saving.accounts, y = n)) +
+  geom_bar(stat = 'identity') +
+  geom_label(aes(label = n)) +
+  ggtitle("Saving Accounts") +
+  labs(y="Total", x = "Category")
+```
+- from the histogram above, actualy since the little category is the most populated one, and the meaning of missing value in saving accounts is people are not having account when applying the credit
+- so for that we can just change the value of NA with "not having saving account" to handle this issue
+
+```{r}
+data_clean <- data %>% mutate (Saving.accounts = ifelse(is.na(Saving.accounts), "not having saving account",Saving.accounts))
+
+data_clean
+```
+
+```{r}
+data_clean %>% 
+  count(Checking.account) %>% 
+  ggplot(aes(x = Checking.account, y = n)) +
+  geom_bar(stat = 'identity') +
+  geom_label(aes(label = n)) +
+  ggtitle("Checking.account") +
+  labs(y="Total", x = "Category")
+```
+- from the histogram above we see that the missing value has the biggest portion of this checking account category
+- after we read the documentation of this dataset, missing value in this dataset is no checking account (these peoples don't have money amount in their account when applying the credit)
+- so similar with saving accounts issue, we can change this missing value with "no checking account"
+
+```{r}
+data_clean <- data_clean %>% mutate (Checking.account = ifelse(is.na(Checking.account), "no checking account",Checking.account))
+
+data_clean
+```
+
+#EDA
+```{r}
+data_clean %>% 
+  group_by(Sex) %>% 
+  summarise(count = n())
+```
+
+
+```{r}
+data_clean %>%
+  ggplot(aes(x = Age)) +
+  geom_density(aes(fill = factor(Sex)), alpha = 0.2) +
+  ggtitle("Age Distribution per Gender") +
+  scale_x_continuous(breaks = seq(15, 75, 10), 
+                     limits = c(19,80)) 
+```
+- mostly the client in this dataset is quite young, the age range mostly in (20 - 30) with male are the highest applicant 
+
+```{r}
+data_clean %>% 
+  group_by(Job, Sex) %>% 
+  summarise(count = n())
+```
+
+```{r}
+data_clean %>% 
+  count(Job) %>% 
+  ggplot(aes(x = Job, y = n)) +
+  geom_bar(stat = 'identity') +
+  geom_label(aes(label = n)) +
+  ggtitle("Job Distribution") +
+  labs(y="Total", x = "Category")
+```
+- Job (numeric: 0 - unskilled and non-resident, 1 - unskilled and resident, 2 - skilled, 3 - highly skilled)
+- we can tell that mostly the applicant in this dataset is skilled person from the job category
+
+```{r}
+data_clean %>% 
+  group_by(Duration) %>% 
+  summarise(count = n())
+```
+
+```{r}
+data_clean %>%
+  ggplot(aes(x = Duration)) +
+  geom_density(aes(fill = factor(Sex)), alpha = 0.2) +
+  ggtitle("Duration Distribution per Gender") +
+  scale_x_continuous(breaks = seq(4, 14, 1), 
+                     limits = c(0,15)) 
+```
+- for this checking we know that mostly the applicant in this dataset is having working experience in 12 months (meaning the applicant is having occupation)
+
+
+```{r}
+data_clean %>% 
+  group_by(Sex, Purpose) %>% 
+  summarise(count = n())
+```
+
+```{r fig.width=10}
+data_clean %>% 
+  count(Purpose) %>% 
+  ggplot(aes(x = Purpose, y = n)) +
+  geom_bar(stat = 'identity') +
+  geom_label(aes(label = n)) +
+  ggtitle("Purpose Distribution") +
+  labs(y="Total", x = "Category")
+```
+- most of this applicant are apply the credit for car purpose with the biggest portion is for Male
+
+
+```{r}
+data_clean %>% 
+  ggplot(aes(x=Credit.amount)) +
+  geom_boxplot(fill="slateblue", alpha=0.2) +
+  ggtitle("Credit Amount Distribution") +
+  labs(x="Credit Amount") +
+  coord_flip()
+```
+```{r}
+summary(data_clean$Credit.amount)
+```
+```{r}
+data_clean %>% 
+  filter(Credit.amount == 18424)
+```
+- after we look at the maximal credit amount we know that this person is applying the credit for vacation purpose but if we look at the grade, it is bad risk 
+- it's no outliers since the risk logic is the higher amount that the client propose, the higher as well the risk is (it can be a fraudster or else) 
+- so we keep this data and not exclude it from our dataset
+
+#Checking Target Variable
+```{r}
+data_clean %>% 
+  group_by(Risk) %>% 
+  summarise(count = n())
+```
+- we have portion ratio for good risk is 70% and 30% for bad risk
+
+#remove column
+```{r}
+data_clean <- subset(data_clean,select = -c(X))
+
+data_clean
+```
+- since the X column is only the row id, we can take out it first from our model
+
+```{r}
+# correlation study
+library(psych)
+```
+
+
+```{r fig.width= 10, fig.height=8}
+pairs.panels(data_clean, 
+             method = "pearson", 
+             hist.col = "#00AFBB",
+             density = TRUE,  
+             ellipses = TRUE 
+) 
+```
+- we can say that we don't have any multicollinearity from this pair plot since there's no correlation point above 0.8, so we can put all of our feature into our model later
+
+
+#Data Preparation
+```{r}
+data_clean <- data_clean %>% 
+  mutate(Sex = ifelse(Sex == "male",1,0))
+
+data_clean
+```
+
+
+```{r}
+data_clean <- data_clean %>% 
+  mutate(Risk = ifelse(Risk=="good",1,0))
+
+data_clean
+```
+
+
+```{r}
+library(caret)
+```
+
+
+```{r}
+dummy <- dummyVars(" ~ .", data=data_clean)
+newdata <- data.frame(predict(dummy, newdata = data_clean))
+```
+
+
+```{r}
+str(newdata)
+```
+
+#Modeling
+```{r}
+library(caTools)
+
+set.seed(123)
+sample <- sample.split(newdata$Risk, SplitRatio = .80)
+train <- subset(newdata, sample == TRUE)
+test <- subset(newdata, sample == FALSE)
+```
+
+```{r}
+model_logreg = glm(Risk ~ . , train,family="binomial"(link='logit'))
+summary(model_logreg)
+```
+```{r}
+# predict(model_logreg, test, type = "response") %>% View()
+```
+
+
+
+```{r}
+y_test_predict= predict(model_logreg, test, type = "response") 
+
+y_test_predict = factor(ifelse(y_test_predict>0.5,1,0))
+```
+
+```{r}
+table(y_test_predict,test$Risk,dnn = c("Prediction","Actual"))
+```
+```{r}
+caret::confusionMatrix(y_test_predict,factor(test$Risk))
+```
+
+```{r}
+library(randomForest)
+```
+
+```{r}
+rf <- randomForest(factor(Risk) ~ .,data=train)
+
+rf
+```
+
+```{r}
+pred_rf = predict(rf, newdata=test)
+
+# pred_rf
+```
+```{r}
+table(pred_rf,test$Risk,dnn = c("Prediction","Actual"))
+```
+
+```{r}
+caret::confusionMatrix(pred_rf,factor(test$Risk))
+```
+
+- Based on two models above we get similar accuracy value for logistic regression and random forest (0.69) and (0.705)
+- so maybe we can take a look at another metric to compare between this two models
+
+
+
+
+
+#Handling inbalance data using SMOTE method
+```{r}
+library(smotefamily)
+```
+
+
+```{r}
+data_SMOTE <- SMOTE(newdata, newdata$Risk, K = 5, dup_size = 1)
+```
+
+```{r}
+newdata_smote <- data_SMOTE$data
+```
+
+
+```{r}
+newdata_smote %>% 
+  group_by(Risk) %>% 
+  summarise(total = n(),
+            ratio = 100*n()/nrow(newdata_smote)
+  )
+```
+- Now the proportion ratio between good and bad Risk quite balance
+- Let's try the model on this new approach
+
+
+```{r}
+set.seed(123)
+
+sample_smote <- sample.split(newdata_smote$Risk, SplitRatio = .8)
+train_smote <- subset(newdata_smote, sample == TRUE)
+test_smote <- subset(newdata_smote, sample == FALSE)
+```
+
+
+```{r}
+model_logreg_smote = glm(factor(Risk) ~ . , train_smote, family="binomial"(link='logit'))
+
+summary(model_logreg_smote)
+```
+
+
+
+```{r}
+y_test_predict_smote = predict(model_logreg_smote, test_smote, type = "response") 
+
+# y_test_predict_smote
+
+y_test_predict_smote = factor(ifelse(y_test_predict_smote>0.5,1,0))
+```
+
+
+```{r}
+caret::confusionMatrix(y_test_predict_smote,factor(test_smote$Risk))
+```
+
+```{r}
+rf_smote <- randomForest(factor(Risk) ~ .,data=train_smote)
+
+rf_smote
+```
+
+```{r}
+pred_rf_smote = predict(rf_smote, newdata=test_smote)
+
+# pred_rf
+```
+
+```{r}
+caret::confusionMatrix(pred_rf_smote,factor(test_smote$Risk))
+```
+- Weird result if we using SMOTE method since the model give 100% accuracy which is not possible
+
+
+#Oversampling 
+```{r}
+library(ROSE)
+```
+
+```{r}
+newdata_over <- ovun.sample(factor(Risk) ~ ., data = newdata, method = "over", seed = 1)$data
+```
+
+```{r}
+newdata_over %>% 
+  group_by(Risk) %>% 
+  summarise(total = n(),
+            ratio = 100*n()/nrow(newdata_over))
+```
+
+```{r}
+set.seed(123)
+
+sample_over <- sample.split(newdata_over$Risk, SplitRatio = .8)
+train_over <- subset(newdata_over, sample == TRUE)
+test_over <- subset(newdata_over, sample == FALSE)
+
+```
+
+
+```{r}
+model_logreg_over = glm(factor(Risk) ~ . , train_over, family="binomial"(link='logit'))
+
+summary(model_logreg_over)
+```
+
+```{r}
+y_test_predict_over = predict(model_logreg_over, test_over, type = "response") 
+
+y_test_predict_over = factor(ifelse(y_test_predict_over>0.5,1,0))
+```
+
+```{r}
+caret::confusionMatrix(y_test_predict_over,factor(test_over$Risk))
+```
+
+```{r}
+rf_over <- randomForest(factor(Risk) ~ .,data=train_over)
+
+rf_over
+
+```
+
+```{r}
+pred_rf_over = predict(rf_over, newdata=test_over)
+```
+
+```{r}
+caret::confusionMatrix(pred_rf_over,factor(test_over$Risk))
+```
+- the result if we are using random forest after we oversampling the target variable, we get around 86% accuracy compare to logistic regression around 68.6%
+
+
